@@ -26,25 +26,46 @@ class House:
     address: str = None
     floor: str = None
     post_id: str = None
+    cdate: datetime = datetime.now()
+    title: str = None
 
 class Agent():
     def __init__(self):
         # session = requests.Session()
+        self.lineToken = config['line']['token']
+        self.lineUrl = config['line']['url']
+        self.userAgent = config['line']['useragent']
+        print(self.lineToken, self.lineUrl, self.userAgent)
+        exit
         pass
 
     def send_to_line_notify(self, line_message:str):
         logging.info('send_to_line_notify / {}'.format(line_message))
-        token = config['line']['token']
-        lineheaders = { "Authorization": "Bearer " + token }
-        data = { 'message': line_message }
-        requests.post("https://notify-api.line.me/api/notify", headers = lineheaders, data = data)
+        res = requests.post(self.lineUrl, headers = { "Authorization": "Bearer " + self.lineToken }, data = { 'message': line_message })
+        print(res, res.text)
+
+    def createMessage(self, hInfo:House) -> str:
+        line_message = '{house_community_name}\n{house_title}\n{house_url}\n {house_price} 萬 / {house_area} 坪\n單價 {house_unit_price}\n{house_room} {house_floor}\n{house_address}\n{house_cartmodel}'.format(
+                house_community_name=hInfo.community_name,
+                house_title=hInfo.title,
+                house_url=hInfo.link,
+                house_price=hInfo.price,
+                house_area=hInfo.area,
+                house_unit_price=hInfo.unit_price,
+                house_room=hInfo.room,
+                house_floor=hInfo.floor,
+                # house_section_name=hInfo.community_name,
+                house_address=hInfo.address,
+                house_cartmodel=hInfo.cartmodel
+            )
+        return line_message
 
     def refresh(self):
         session = requests.Session()
-        res = session.get("https://sale.591.com.tw", headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64 x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36'})
+        res = session.get("https://sale.591.com.tw", headers={'User-Agent': self.userAgent})
         soup = BeautifulSoup(res.text, features="html.parser")
         csrf = soup.find('meta', attrs={'name': 'csrf-token'})['content']
-        url = "https://sale.591.com.tw/home/search/list?type=2&shType=list&regionid=8&section=104,103,105&price=50$_1800$&pattern=2,3,4,5,6&houseage=$_20$&label=7&order=posttime_desc&timestamp=1694872798593&recom_community=1"
+        url = "https://sale.591.com.tw/home/search/list?type=2&shType=list&regionid=8&section=104,103,105&price=50$_2000$&pattern=2,3,4,5,6&houseage=$_20$&label=7&order=posttime_desc&timestamp=1694872798593&recom_community=1"
         headers = {
             # 'Host': 'www.591.com.tw',
             # 'Upgrade-Insecure-Requests': '1',
@@ -90,24 +111,13 @@ class Agent():
             house_mainarea = rj["mainarea"]
             # tmpary = [house_hyperlink, house_price, house_area, house_unit_price, house_room, house_mainarea, house_houseage, house_community_name, house_cartmodel, house_section_name+house_section_name, house_floor, post_id]
             tmpdata = House(
-                house_hyperlink,
+                house_url,
                 house_price,
-                house_area, house_unit_price, house_room, house_mainarea, house_houseage, house_community_name, house_cartmodel, house_section_name+house_section_name, house_floor, post_id)
+                house_area, house_unit_price, house_room, house_mainarea, house_houseage, house_community_name, house_cartmodel, house_section_name+" "+house_address, house_floor, post_id,
+                title=house_title)
             print(tmpdata)
             tmpdatas.append(tmpdata)
-            line_message = '{house_community_name}\n{house_title}\n{house_url}\n {house_price} 萬 / {house_area} 坪\n單價 {house_unit_price}\n{house_room} {house_floor}\n{house_section_name} {house_address}\n{house_cartmodel}'.format(
-                house_community_name=house_community_name,
-                house_title=house_title,
-                house_url=house_url,
-                house_price=house_price,
-                house_area=house_area,
-                house_unit_price=house_unit_price,
-                house_room=house_room,
-                house_floor=house_floor,
-                house_section_name=house_section_name,
-                house_address=house_address,
-                house_cartmodel=house_cartmodel
-            )
+            line_message = self.createMessage(hInfo=tmpdata)
             print(line_message)
             logging.info('add link {}'.format(post_id))
             self.send_to_line_notify(line_message)
@@ -116,10 +126,40 @@ class Agent():
         logging.info('after / house.csv len {}'.format(len(df)))
         df.to_csv('../log/house.csv', index=False)
 
+class Agent591(Agent):
+    def __init__(self):
+        super().__init__()
+        self.mainUrl = "https://sale.591.com.tw/home/search/list?type=2&shType=list&regionid=8&section=104,103,105&price=50$_2000$&pattern=2,3,4,5,6&houseage=$_20$&label=7&order=posttime_desc&timestamp=1694872798593&recom_community=1"
+        self.baseUrl = "https://sale.591.com.tw"
+        self.mainHeader = {
+            'User-Agent': self.userAgent,
+            'X-Csrf-Token': None,
+            'Cache-Control': 'no-cache'
+            }
+        pass
+
+    def refresh(self):
+        try:
+            session = requests.Session()
+            res = session.get(self.baseUrl, headers={'User-Agent': self.userAgent})
+            soup = BeautifulSoup(res.text, features="html.parser")
+            csrf = soup.find('meta', attrs={'name': 'csrf-token'})['content']
+            self.mainHeader['X-Csrf-Token'] = csrf
+            res = session.get(self.mainUrl, headers=self.mainHeader)
+            res_json = res.json()
+            print(res_json)
+        except Exception as ex:
+            print(ex)
+
+    def parsing(self):
+        pass
+
 if __name__ == '__main__':
     agent = Agent()
     # while True:
     print('start')
+    # df = pd.DataFrame([House()])
+    # df.to_csv('../log/house.csv', index=False)
     try:
         print(datetime.now())
         logging.info("start {}".format(datetime.now()))
